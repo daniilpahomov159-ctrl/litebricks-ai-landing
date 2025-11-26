@@ -1,0 +1,43 @@
+{
+  "name": "booking-backend",
+  "version": "1.0.0",
+  "description": "Backend для системы записи на консультации с интеграцией Google Calendar",
+  "main": "src/app.js",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/app.js",
+    "start": "node src/app.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:deploy": "prisma migrate deploy",
+    "prisma:studio": "prisma studio",
+    "test": "vitest"
+  },
+  "keywords": [
+    "booking",
+    "calendar",
+    "google-calendar",
+    "express"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@prisma/client": "^5.19.0",
+    "express": "^4.18.2",
+    "googleapis": "^128.0.0",
+    "luxon": "^3.4.4",
+    "node-cron": "^3.0.3",
+    "pino": "^8.17.2",
+    "pino-pretty": "^10.3.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.1",
+    "express-rate-limit": "^7.1.5",
+    "redis": "^4.6.12"
+  },
+  "devDependencies": {
+    "prisma": "^5.19.0",
+    "vitest": "^1.6.0",
+    "supertest": "^6.3.3"
+  }
+}
+

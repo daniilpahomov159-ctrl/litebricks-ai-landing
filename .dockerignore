@@ -1,0 +1,41 @@
+# Общие игнорируемые файлы/папки
+.git
+.gitignore
+.cursor
+.vscode
+.idea
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# Артефакты сборки фронтенда
+dist
+dist-ssr
+
+# Backend-specific
+backend/node_modules
+backend/dist
+backend/.env
+
+# Prisma артефакты (сами миграции нам нужны, но можно исключить локальные кэши)
+backend/prisma/dev.db
+
+# Docker/Compose файлы не нужны внутри образов
+docker-compose.yml
+docker-compose*.yml
+Dockerfile
+backend/Dockerfile
+
+# OS / редакторы
+*.sw?
+*.suo
+*.njsproj
+*.sln
+*.ntvs*
+Thumbs.db
+*.DS_Store
+
+

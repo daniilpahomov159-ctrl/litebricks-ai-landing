@@ -1,0 +1,93 @@
+// schema.prisma
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id            String   @id @default(cuid())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  // Храним только то, что пользователь ввёл для связи
+  email         String?  @unique
+  telegram      String?  @unique
+  // Нерегистрация — заявки анонимные, id связаны с Booking
+  bookings      Booking[]
+}
+
+// Модель AvailabilitySlot удалена — используем Google Calendar как источник истины
+// Опционально можно оставить для кэширования, но это не обязательно
+
+model Booking {
+  id              String   @id @default(cuid())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  // Дата бронирования (Europe/Moscow, хранится как Date без времени для группировки)
+  date            DateTime @db.Date
+  // Период встречи (равен периоду слота)
+  startUtc        DateTime
+  endUtc          DateTime
+  // Контакты и согласия
+  contactRaw      String?  // email или @telegram (nullable после анонимизации)
+  contactType     ContactType?
+  consentPersonal Boolean  @default(false) // согласие на обработку ПД (false после анонимизации)
+  // Статус
+  status          BookingStatus @default(CONFIRMED) // авто‑подтверждение
+  // Связи
+  userId          String?
+  user            User?        @relation(fields: [userId], references: [id])
+  // ID события в Google Calendar (для синхронизации и отмены)
+  googleEventId   String?      @unique
+  // Retention и анонимизация
+  anonymizedAt    DateTime?    // дата анонимизации ПД
+  purgedAt        DateTime?     // дата удаления записи
+  // Связь с AuditLog
+  auditLogs       AuditLog[]
+  // Защитные индексы от пересечения броней в одном интервале и для поиска по дате
+  @@index([date])
+  @@index([date, status])
+  @@index([startUtc, endUtc])
+  @@index([date, startUtc, endUtc])
+  @@index([anonymizedAt])
+  @@index([purgedAt])
+  @@index([endUtc, anonymizedAt]) // для поиска прошедших неанонимизированных броней
+}
+
+model AuditLog {
+  id              String   @id @default(cuid())
+  createdAt       DateTime @default(now())
+  // Тип операции
+  action          AuditAction
+  // Связь с бронированием (опционально, может быть null для системных операций)
+  bookingId       String?
+  booking         Booking? @relation(fields: [bookingId], references: [id])
+  // Метаданные операции (без ПДн)
+  metadata        Json?    // дополнительные данные операции (без персональных данных)
+  // Индексы для поиска
+  @@index([createdAt])
+  @@index([action])
+  @@index([bookingId])
+}
+
+enum BookingStatus {
+  CONFIRMED // бронь подтверждена сразу
+  CANCELLED // отменена
+}
+
+enum ContactType {
+  EMAIL
+  TELEGRAM
+}
+
+enum AuditAction {
+  BOOKING_CREATED      // создание брони
+  BOOKING_CANCELLED    // отмена брони
+  BOOKING_ANONYMIZED   // анонимизация ПД
+  BOOKING_PURGED       // удаление брони
+  RETENTION_RUN        // запуск retention процесса
+}
+
