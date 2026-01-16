@@ -1,0 +1,28 @@
+[Unit]
+Description=Litebrick Booking Service
+After=docker.service network-online.target
+Requires=docker.service
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/root/app/litebricks-ai-landing
+
+# Остановка старых контейнеров и запуск новых (перечитывает .env)
+ExecStart=/usr/bin/docker-compose down
+ExecStart=/usr/bin/docker-compose up -d
+
+# При остановке сервиса
+ExecStop=/usr/bin/docker-compose down
+
+# Перезапуск при ошибке
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+
+
+

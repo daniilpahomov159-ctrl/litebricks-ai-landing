@@ -5,8 +5,52 @@ import { getCalendarEvents, createCalendarEvent, deleteCalendarEvent } from '../
 import { prisma } from '../utils/prisma.js';
 import { logger } from '../utils/logger.js';
 import { sendTelegramNotification } from '../utils/telegram.js';
+import { deleteCache } from '../utils/redis.js';
+import { encryptField, decryptField } from '../utils/encryption.js';
+import { maskContact } from '../utils/mask-sensitive-data.js';
 
 const router = express.Router();
+
+/**
+ * Инвалидация кеша доступности для даты
+ * Удаляет кеш для указанной даты
+ * @param {string|Date} date - дата в формате строки YYYY-MM-DD или Date объект
+ */
+async function invalidateAvailabilityCache(date) {
+  let dateStr;
+  
+  if (typeof date === 'string') {
+    // Если это строка, проверяем формат и нормализуем
+    const parsed = DateTime.fromISO(date, { zone: 'Europe/Moscow' });
+    if (!parsed.isValid) {
+      logger.warn({ date }, 'Неверный формат даты при инвалидации кеша');
+      return;
+    }
+    dateStr = parsed.toISODate(); // Формат: "2026-01-17"
+  } else {
+    // Если это Date объект, конвертируем в строку
+    dateStr = DateTime.fromJSDate(date).setZone('Europe/Moscow').toISODate();
+  }
+  
+  if (!dateStr) {
+    logger.warn({ date }, 'Не удалось преобразовать дату для инвалидации кеша');
+    return;
+  }
+  
+  const cacheKey = `availability:${dateStr}`;
+  
+  logger.info({ 
+    date: dateStr, 
+    cacheKey 
+  }, 'Инвалидация кеша доступности');
+  
+  const deleted = await deleteCache(cacheKey);
+  
+  logger.info({ 
+    date: dateStr, 
+    deleted: deleted > 0 
+  }, 'Кеш доступности инвалидирован');
+}
 
 /**
  * POST /api/bookings
@@ -62,6 +106,9 @@ router.post('/', async (req, res, next) => {
     const dateMoscow = DateTime.fromISO(date, { zone: 'Europe/Moscow' }).startOf('day');
     const dateObj = dateMoscow.toUTC().toJSDate();
     
+    // Используем строку даты в формате YYYY-MM-DD (как в запросе availability)
+    const dateStr = dateMoscow.toISODate(); // Формат: "2026-01-17"
+    
     // Проверка доступности в Google Calendar
     const events = await getCalendarEvents(startTime.toJSDate(), endTime.toJSDate());
     if (events.length > 0) {
@@ -92,6 +139,16 @@ router.post('/', async (req, res, next) => {
       });
     }
     
+    // ИНВАЛИДАЦИЯ КЕША ПОСЛЕ ПРОВЕРКИ КОНФЛИКТОВ, НО ДО СОЗДАНИЯ БРОНИ
+    // Это предотвращает race condition: если другой пользователь запросит доступность
+    // после инвалидации, он получит актуальные данные из БД
+    try {
+      await invalidateAvailabilityCache(dateStr);
+      logger.info({ date: dateStr }, 'Кеш инвалидирован перед созданием брони');
+    } catch (error) {
+      logger.warn({ error, date: dateStr }, 'Ошибка при инвалидации кеша (не критично)');
+    }
+    
     // Создание события в Google Calendar (опционально)
     const eventTitle = 'Консультация';
     const eventDescription = `Контакт: ${contactType === 'EMAIL' ? 'Email' : 'Telegram'} ${contactRaw}`;
@@ -120,12 +177,16 @@ router.post('/', async (req, res, next) => {
     // Пример: пользователь выбрал 10:00 МСК → сохраняется 07:00 UTC
     // При чтении из БД фронтенд/бэкенд конвертирует обратно в МСК
     
+    // Шифруем чувствительные данные перед сохранением
+    const contactRawEncrypted = contactRaw ? encryptField(contactRaw) : null;
+    
     const booking = await prisma.booking.create({
       data: {
         date: dateObj, // Дата в UTC (начало дня по московскому времени)
         startUtc: startTime.toJSDate(), // Время начала в UTC (10:00 МСК → 07:00 UTC)
         endUtc: endTime.toJSDate(), // Время окончания в UTC (11:00 МСК → 08:00 UTC)
-        contactRaw,
+        contactRawEncrypted, // Сохраняем зашифрованные данные
+        encryptionVersion: 1, // Версия шифрования
         contactType,
         consentPersonal,
         status: 'CONFIRMED',
@@ -134,10 +195,11 @@ router.post('/', async (req, res, next) => {
     });
     
     // Логируем созданную бронь с московским временем для удобства
+    // ВАЖНО: не логируем незашифрованные данные, только замаскированные
     logger.info({
       bookingId: booking.id,
       time: `${startMoscow.toFormat('yyyy-MM-dd HH:mm')} - ${endMoscow.toFormat('HH:mm')} МСК`,
-      contact: contactRaw,
+      contact: maskContact(contactRaw, contactType), // Маскируем для логов
     }, 'Бронь успешно создана');
     
     // Создание записи в AuditLog
@@ -154,13 +216,25 @@ router.post('/', async (req, res, next) => {
     });
     
     // Уведомление в Telegram
+    // Передаем расшифрованные данные для уведомления (они нужны для отправки)
     try {
       await sendTelegramNotification(booking, contactRaw, contactType);
     } catch (error) {
       logger.warn({ error }, 'Ошибка при отправке уведомления в Telegram');
     }
     
-    res.status(201).json(booking);
+    // Кеш уже инвалидирован перед созданием брони
+    // Повторная инвалидация не требуется при простом кешировании
+    
+    // Возвращаем бронь с расшифрованными данными для клиента
+    // (в production можно вернуть только замаскированные данные)
+    const bookingResponse = {
+      ...booking,
+      contactRaw: contactRaw, // Возвращаем расшифрованные данные клиенту
+      contactRawEncrypted: undefined, // Не возвращаем зашифрованные данные
+    };
+    
+    res.status(201).json(bookingResponse);
   } catch (error) {
     if (error.code === 409) {
       return res.status(409).json({ 
@@ -194,9 +268,15 @@ router.get('/by-contact', async (req, res, next) => {
     }
     
     // Поиск активной (не отменённой) брони по контакту
+    // Ищем по зашифрованному полю (новые записи) или по старому полю (для обратной совместимости)
+    const contactEncrypted = encryptField(contact);
+    
     const booking = await prisma.booking.findFirst({
       where: {
-        contactRaw: contact,
+        OR: [
+          { contactRawEncrypted: contactEncrypted }, // Новые зашифрованные записи
+          { contactRaw: contact }, // Старые незашифрованные записи (для миграции)
+        ],
         status: 'CONFIRMED',
         endUtc: { gt: new Date() }, // только будущие брони
       },
@@ -214,7 +294,28 @@ router.get('/by-contact', async (req, res, next) => {
       });
     }
     
-    res.json(booking);
+    // Расшифровываем данные перед отправкой клиенту
+    let decryptedContact = null;
+    if (booking.contactRawEncrypted) {
+      try {
+        decryptedContact = decryptField(booking.contactRawEncrypted);
+      } catch (error) {
+        logger.error({ error, bookingId: booking.id }, 'Ошибка при расшифровке контакта');
+        // Если не удалось расшифровать, используем старое поле (для обратной совместимости)
+        decryptedContact = booking.contactRaw;
+      }
+    } else {
+      // Старые записи без шифрования
+      decryptedContact = booking.contactRaw;
+    }
+    
+    const bookingResponse = {
+      ...booking,
+      contactRaw: decryptedContact,
+      contactRawEncrypted: undefined, // Не возвращаем зашифрованные данные
+    };
+    
+    res.json(bookingResponse);
   } catch (error) {
     logger.error({ error }, 'Ошибка при получении брони по контакту');
     next(error);
@@ -242,7 +343,28 @@ router.get('/:id', async (req, res, next) => {
       });
     }
     
-    res.json(booking);
+    // Расшифровываем данные перед отправкой клиенту
+    let decryptedContact = null;
+    if (booking.contactRawEncrypted) {
+      try {
+        decryptedContact = decryptField(booking.contactRawEncrypted);
+      } catch (error) {
+        logger.error({ error, bookingId: booking.id }, 'Ошибка при расшифровке контакта');
+        // Если не удалось расшифровать, используем старое поле (для обратной совместимости)
+        decryptedContact = booking.contactRaw;
+      }
+    } else {
+      // Старые записи без шифрования
+      decryptedContact = booking.contactRaw;
+    }
+    
+    const bookingResponse = {
+      ...booking,
+      contactRaw: decryptedContact,
+      contactRawEncrypted: undefined, // Не возвращаем зашифрованные данные
+    };
+    
+    res.json(bookingResponse);
   } catch (error) {
     logger.error({ error }, 'Ошибка при получении брони');
     next(error);
@@ -286,16 +408,34 @@ router.patch('/:id/status', async (req, res, next) => {
       data: { status: 'CANCELLED' },
     });
     
-    // Удаление события из Google Calendar (только если событие ещё не прошло)
-    const now = new Date();
-    if (booking.googleEventId && booking.endUtc > now) {
+    // Удаление события из Google Calendar при отмене бронирования
+    // Удаляем всегда, независимо от того, прошло событие или нет
+    if (booking.googleEventId) {
       try {
         await deleteCalendarEvent(booking.googleEventId);
+        logger.info({ 
+          bookingId: booking.id, 
+          googleEventId: booking.googleEventId,
+          endUtc: booking.endUtc 
+        }, 'Событие удалено из Google Calendar при отмене брони');
       } catch (error) {
-        logger.warn({ error, googleEventId: booking.googleEventId }, 'Ошибка при удалении события из Google Calendar');
+        // Если событие уже удалено или не найдено (404) - это нормально
+        if (error.code === 404) {
+          logger.info({ 
+            bookingId: booking.id, 
+            googleEventId: booking.googleEventId 
+          }, 'Событие уже было удалено из Google Calendar');
+        } else {
+          logger.warn({ 
+            error, 
+            bookingId: booking.id,
+            googleEventId: booking.googleEventId 
+          }, 'Ошибка при удалении события из Google Calendar (продолжаем работу)');
+        }
+        // Не прерываем выполнение, если не удалось удалить событие
       }
-    } else if (booking.googleEventId && booking.endUtc <= now) {
-      logger.info({ bookingId: booking.id, endUtc: booking.endUtc }, 'Событие уже прошло, не удаляем из Google Calendar');
+    } else {
+      logger.debug({ bookingId: booking.id }, 'Бронь не имела события в Google Calendar');
     }
     
     // Создание записи в AuditLog
@@ -310,6 +450,13 @@ router.patch('/:id/status', async (req, res, next) => {
         },
       },
     });
+    
+    // Инвалидация кеша доступности для даты брони
+    try {
+      await invalidateAvailabilityCache(booking.date);
+    } catch (error) {
+      logger.warn({ error, date: booking.date }, 'Ошибка при инвалидации кеша (не критично)');
+    }
     
     res.json(updatedBooking);
   } catch (error) {

@@ -5,7 +5,12 @@ datasource db {
 }
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // Явно указываем целевые бинарные платформы:
+  // - native  — для локальной разработки
+  // - debian-openssl-3.0.x — для production/CI в node:20 (Debian, OpenSSL 3),
+  //   чтобы Prisma мог найти корректный Query Engine в Docker-контейнере
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 
 model User {
@@ -32,9 +37,11 @@ model Booking {
   startUtc        DateTime
   endUtc          DateTime
   // Контакты и согласия
-  contactRaw      String?  // email или @telegram (nullable после анонимизации)
-  contactType     ContactType?
-  consentPersonal Boolean  @default(false) // согласие на обработку ПД (false после анонимизации)
+  contactRaw          String?  // email или @telegram (nullable после анонимизации) - DEPRECATED: используйте contactRawEncrypted
+  contactRawEncrypted String?  // зашифрованные контактные данные (AES-256-GCM)
+  encryptionVersion   Int?     @default(1) // версия шифрования для управления ключами
+  contactType         ContactType?
+  consentPersonal     Boolean  @default(false) // согласие на обработку ПД (false после анонимизации)
   // Статус
   status          BookingStatus @default(CONFIRMED) // авто‑подтверждение
   // Связи

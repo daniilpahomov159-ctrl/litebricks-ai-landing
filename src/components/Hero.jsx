@@ -4,7 +4,19 @@ const Hero = () => {
   const scrollToSection = (sectionId) => {
     const element = document.getElementById(sectionId);
     if (element) {
-      element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      // Используем ту же логику смещения, что и в Header,
+      // чтобы поведение совпадало с кликом по пункту «Консультация».
+      const headerHeight = 60;
+      const additionalOffset = sectionId === 'about' ? 100 : 15;
+      const totalOffset = headerHeight + additionalOffset;
+
+      const elementTop = element.offsetTop;
+      const scrollPosition = elementTop - totalOffset;
+
+      window.scrollTo({
+        top: scrollPosition,
+        behavior: 'smooth',
+      });
     }
   };
 
@@ -99,7 +111,7 @@ const Hero = () => {
 
         <div className="hero__content">
           <h1 className="hero__title">
-            Внедряем AI, который снижает издержки и ускоряет операции
+            Внедряем AI, который повышает КПД вашего бизнеса
           </h1>
           <p className="hero__subtitle">
             Анализируем бизнес-процессы, проектируем архитектуру решений и обеспечиваем измеримую окупаемость инвестиций.
@@ -108,7 +120,9 @@ const Hero = () => {
           <div className="hero__actions">
             <button
               className="btn btn--primary btn--pulse"
-              onClick={() => scrollToSection('audit')}
+              // Направляем пользователя сразу к блоку записи на консультацию
+              // вместо секции аудита, чтобы упростить путь к действию.
+              onClick={() => scrollToSection('booking')}
             >
               Бесплатный аудит бизнес-процессов
               <svg className="btn__icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">

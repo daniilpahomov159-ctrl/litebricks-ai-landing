@@ -1,4 +1,7 @@
 import React from 'react';
+import gmailIcon from '../logo/gmail-Photoroom.png';
+import telegramIcon from '../logo/Telegram.png';
+import whatsappIcon from '../logo/whatsapp-Photoroom.png';
 
 const Legal = () => {
   const currentYear = new Date().getFullYear();
@@ -35,30 +38,47 @@ const Legal = () => {
   ];
 
   return (
-    <div className="legal">
+    <footer id="legal" className="legal">
       <div className="legal__container">
         <div className="legal__content">
-          <div>
+          <address>
             <h3 className="legal__section-title">Контакты</h3>
-            <p className="legal__contact">
-              Email:{' '}
+            <div className="legal__contact">
+              {/* Иконка Gmail: клик открывает окно создания письма и копирует адрес */}
               <a 
                 href={gmailLink}
                 onClick={handleEmailClick}
-                className="legal__contact-link"
+                className="legal__contact-icon"
+                aria-label="Написать на Gmail"
               >
-                {email}
+                <img src={gmailIcon} alt="Gmail" className="legal__contact-image" />
               </a>
-            </p>
-            <p className="legal__contact">
-              Telegram:{' '}
-              <a href="https://t.me/dperson24" target="_blank" rel="noopener noreferrer">
-              @dperson24
-              </a>
-            </p>
-          </div>
 
-          <div>
+              {/* Иконка Telegram: сразу ведёт в диалог в Telegram */}
+              <a
+                href="https://t.me/dperson24"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="legal__contact-icon"
+                aria-label="Написать в Telegram"
+              >
+                <img src={telegramIcon} alt="Telegram" className="legal__contact-image" />
+              </a>
+
+              {/* Иконка WhatsApp: открывает диалог в личные сообщения по номеру 8 927 048 17 65 */}
+              <a
+                href="https://wa.me/79270481765"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="legal__contact-icon"
+                aria-label="Написать в WhatsApp"
+              >
+                <img src={whatsappIcon} alt="WhatsApp" className="legal__contact-image" />
+              </a>
+            </div>
+          </address>
+
+          <nav>
             <h3 className="legal__section-title">Документы</h3>
             <ul className="legal__docs">
               {documents.map((doc, index) => (
@@ -77,17 +97,16 @@ const Legal = () => {
                 </li>
               ))}
             </ul>
-          </div>
+          </nav>
         </div>
 
         <div className="legal__footer">
           <p>
-            © {currentYear} LITEBRICK. Внедряем искусственный интеллект в бизнес-процессы.
-            
+            © <time dateTime={currentYear.toString()}>{currentYear}</time> LITEBRICK. Внедряем искусственный интеллект в бизнес-процессы.
           </p>
         </div>
       </div>
-    </div>
+    </footer>
   );
 };
 

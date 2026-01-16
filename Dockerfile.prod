@@ -1,0 +1,99 @@
+# =============================================================================
+# Dockerfile для production - Remix SSR Frontend
+# Multi-stage build с оптимизацией размера образа
+# =============================================================================
+# Использование: docker build -f Dockerfile.prod -t litebricks-frontend:latest .
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Stage 1: base - Базовый образ с общими настройками
+# -----------------------------------------------------------------------------
+FROM node:20-alpine AS base
+
+# Метаданные образа
+LABEL maintainer="litebricks"
+LABEL description="Litebricks AI Landing - Remix SSR Frontend"
+LABEL version="2.0.0"
+
+# Устанавливаем рабочую директорию
+WORKDIR /app
+
+# Переменные окружения для Node.js
+ENV NODE_ENV=production
+ENV NPM_CONFIG_LOGLEVEL=warn
+
+# -----------------------------------------------------------------------------
+# Stage 2: deps - Установка production зависимостей
+# -----------------------------------------------------------------------------
+FROM base AS deps
+
+# Копируем только файлы для установки зависимостей (кэширование слоёв)
+COPY package.json package-lock.json ./
+
+# Устанавливаем ТОЛЬКО production зависимости
+# --omit=dev - исключаем devDependencies
+# Очищаем кэш npm для уменьшения размера
+RUN npm ci --omit=dev \
+    && npm cache clean --force \
+    && rm -rf /tmp/* /var/tmp/*
+
+# -----------------------------------------------------------------------------
+# Stage 3: builder - Сборка приложения
+# -----------------------------------------------------------------------------
+FROM base AS builder
+
+# Для сборки нужны все зависимости, включая devDependencies
+ENV NODE_ENV=development
+
+# Копируем файлы зависимостей
+COPY package.json package-lock.json ./
+
+# Устанавливаем ВСЕ зависимости для сборки
+# Очищаем кэш сразу после установки
+RUN npm ci \
+    && npm cache clean --force
+
+# Копируем исходный код приложения
+COPY app ./app
+COPY public ./public
+COPY vite.config.ts vite.config.mts tsconfig.json ./
+
+# Выполняем production сборку Remix
+# NODE_ENV=production включает оптимизации
+RUN NODE_ENV=production npm run build
+
+# Удаляем исходники и dev-артефакты после сборки
+RUN rm -rf app/*.ts app/*.tsx \
+    && rm -rf .vite .cache
+
+# -----------------------------------------------------------------------------
+# Stage 4: runner - Финальный production образ
+# -----------------------------------------------------------------------------
+FROM base AS runner
+
+# Создаём непривилегированного пользователя для безопасности
+# Используем числовые ID для совместимости с Kubernetes
+RUN addgroup --system --gid 1001 nodejs \
+    && adduser --system --uid 1001 --ingroup nodejs remix
+
+# Копируем production зависимости из deps stage
+COPY --from=deps --chown=remix:nodejs /app/node_modules ./node_modules
+
+# Копируем собранное приложение из builder stage
+COPY --from=builder --chown=remix:nodejs /app/build ./build
+COPY --from=builder --chown=remix:nodejs /app/public ./public
+COPY --from=builder --chown=remix:nodejs /app/package.json ./package.json
+
+# Переключаемся на непривилегированного пользователя
+USER remix
+
+# Порт приложения
+EXPOSE 3000
+
+# Healthcheck для оркестраторов (Docker Swarm, Kubernetes)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD wget --quiet --tries=1 --spider http://localhost:3000/ || exit 1
+
+# Запуск Remix через remix-serve
+# Используем exec form для корректной обработки сигналов
+CMD ["npm", "start"]

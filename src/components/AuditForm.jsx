@@ -3,6 +3,26 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 const STORAGE_KEY = 'auditForm:v1';
 
 const AuditForm = () => {
+  // Скролл к секции с учётом фиксированного header —
+  // используем ту же логику, что и в Header/Hero,
+  // чтобы поведение было предсказуемым.
+  const scrollToSection = (sectionId) => {
+    const element = document.getElementById(sectionId);
+    if (!element) return;
+
+    const headerHeight = 60;
+    const additionalOffset = sectionId === 'about' ? 100 : 15;
+    const totalOffset = headerHeight + additionalOffset;
+
+    const elementTop = element.offsetTop;
+    const scrollPosition = elementTop - totalOffset;
+
+    window.scrollTo({
+      top: scrollPosition,
+      behavior: 'smooth',
+    });
+  };
+
   // Восстановление состояния из localStorage при монтировании
   const getInitialState = () => {
     try {
@@ -53,9 +73,9 @@ const AuditForm = () => {
   }, []);
 
   const handleCalendarClick = () => {
-    // Пока заглушка - будет вести на календарь
-    console.log('Переход на календарь');
-    // TODO: Добавить переход на календарь
+    // При клике ведём пользователя сразу к блоку записи на консультацию,
+    // так же, как и из Hero (секция booking).
+    scrollToSection('booking');
   };
 
   // Функция для очистки localStorage при успешной отправке формы
@@ -72,10 +92,10 @@ const AuditForm = () => {
       <div className="audit-banner audit-banner--dark">
         <div className="audit-banner__content">
           <h2 className="audit-banner__title">
-            Встреча-знакомство + обсуждение AI-аудита
+            Встреча-знакомство + AI-аудит
           </h2>
           <p className="audit-banner__text">
-            Давайте познакомимся, разберем ваш бизнес и обсудим план AI-аудита, который поможет вам автоматизировать процессы и сократить затраты.
+            Давайте познакомимся, разберем ваш бизнес и обсудим план, который поможет вам автоматизировать процессы и получить желаемый результат.
           </p>
         </div>
         <div className="audit-banner__action">

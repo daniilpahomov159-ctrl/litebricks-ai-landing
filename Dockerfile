@@ -1,36 +1,77 @@
-## Multi-stage Dockerfile для продакшн-сборки фронтенда (React + Vite)
+# =============================================================================
+# Dockerfile для development - Remix SSR Frontend
+# Multi-stage build (может использоваться как для dev, так и для простого prod)
+# =============================================================================
+# Использование: docker build -t litebricks-frontend-dev .
+# =============================================================================
 
-# Stage 1: build
-FROM node:20-alpine AS build
+# -----------------------------------------------------------------------------
+# Stage 1: base - Базовый образ
+# -----------------------------------------------------------------------------
+FROM node:20-alpine AS base
+
+# Метаданные образа
+LABEL maintainer="litebricks"
+LABEL description="Litebricks AI Landing - Remix SSR (Development/Build)"
 
 WORKDIR /app
 
-# Устанавливаем только необходимые зависимости по lock-файлу
-COPY package.json package-lock.json ./
-RUN npm ci
+# -----------------------------------------------------------------------------
+# Stage 2: deps - Установка зависимостей
+# -----------------------------------------------------------------------------
+FROM base AS deps
 
-# Копируем исходники фронтенда
+# Копируем файлы зависимостей
+COPY package.json package-lock.json ./
+
+# Устанавливаем все зависимости
+RUN npm ci \
+    && npm cache clean --force
+
+# -----------------------------------------------------------------------------
+# Stage 3: builder - Сборка приложения
+# -----------------------------------------------------------------------------
+FROM base AS builder
+
+WORKDIR /app
+
+# Копируем зависимости из предыдущего stage
+COPY --from=deps /app/node_modules ./node_modules
+
+# Копируем исходный код
 COPY . .
 
-# Продакшн-сборка Vite
+# Production сборка Remix
 RUN npm run build
 
+# -----------------------------------------------------------------------------
+# Stage 4: production - Минимальный production образ
+# -----------------------------------------------------------------------------
+FROM base AS production
 
-# Stage 2: минимальный nginx-образ для отдачи статики
-FROM nginx:1.27-alpine AS production
+ENV NODE_ENV=production
 
-# Копируем собранный фронтенд
-COPY --from=build /app/dist /usr/share/nginx/html
+# Создаём непривилегированного пользователя
+RUN addgroup --system --gid 1001 nodejs \
+    && adduser --system --uid 1001 --ingroup nodejs remix
 
-# Гарантируем корректные права для пользователя nginx
-RUN chown -R nginx:nginx /usr/share/nginx/html
+WORKDIR /app
 
-EXPOSE 80
+# Копируем только необходимое для запуска
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=builder /app/build ./build
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/package.json ./package.json
 
-# Запускаем nginx не от root (официальный образ использует пользователя nginx)
-USER nginx
+# Устанавливаем владельца
+RUN chown -R remix:nodejs /app
 
-# Запуск nginx в foreground-режиме
-CMD ["nginx", "-g", "daemon off;"]
+USER remix
 
+EXPOSE 3000
 
+# Healthcheck
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD wget --quiet --tries=1 --spider http://localhost:3000/ || exit 1
+
+CMD ["npm", "start"]

@@ -54,11 +54,28 @@ export const config = {
     max: parseInt(process.env.RATE_LIMIT_MAX || (nodeEnv === 'development' ? '100' : '5'), 10),
     windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '3600000', 10), // 1 час по умолчанию
   },
+  
+  // Encryption
+  encryption: {
+    key: process.env.ENCRYPTION_KEY,
+    algorithm: process.env.ENCRYPTION_ALGORITHM || 'aes-256-gcm',
+  },
+  
+  // Redis
+  redis: {
+    password: process.env.REDIS_PASSWORD,
+    tls: process.env.REDIS_TLS === 'true' || process.env.REDIS_TLS === '1',
+  },
 };
 
   // Валидация обязательных переменных
 if (!config.databaseUrl) {
   throw new Error('DATABASE_URL is required');
+}
+
+// Валидация Redis пароля в production
+if (config.nodeEnv === 'production' && !config.redis.password) {
+  console.warn('⚠️  REDIS_PASSWORD не установлен в production режиме - это небезопасно!');
 }
 
 // Google Calendar credentials опциональны (можно настроить позже)

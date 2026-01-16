@@ -1,0 +1,305 @@
+# =============================================================================
+# docker-compose.prod.yml - Production конфигурация для litebrick.ru
+# =============================================================================
+# Использование:
+#   docker-compose -f docker-compose.prod.yml build
+#   docker-compose -f docker-compose.prod.yml up -d
+#   docker-compose -f docker-compose.prod.yml logs -f
+# =============================================================================
+
+version: "3.9"
+
+# -----------------------------------------------------------------------------
+# Сервисы
+# -----------------------------------------------------------------------------
+services:
+
+  # ---------------------------------------------------------------------------
+  # Nginx - Reverse Proxy с SSL
+  # ---------------------------------------------------------------------------
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: litebricks-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # Конфигурация nginx (только чтение)
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      # SSL сертификаты Let's Encrypt (только чтение)
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      # Директория для ACME challenge (только чтение)
+      - /var/www/certbot:/var/www/certbot:ro
+      # Логи nginx
+      - nginx_logs:/var/log/nginx
+    depends_on:
+      frontend:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    networks:
+      - litebricks-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    # Лимиты ресурсов для production
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    # Логирование
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ---------------------------------------------------------------------------
+  # Frontend - Remix SSR
+  # ---------------------------------------------------------------------------
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+      # Кэширование слоёв для ускорения сборки
+      cache_from:
+        - litebricks-frontend:latest
+    image: litebricks-frontend:latest
+    container_name: litebricks-frontend
+    restart: unless-stopped
+    # Внутренний порт (доступ только через nginx)
+    expose:
+      - "3000"
+    environment:
+      - NODE_ENV=production
+      - API_URL=http://backend:3001
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - litebricks-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    # Лимиты ресурсов
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    # Логирование
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # Безопасность: read-only файловая система где возможно
+    read_only: false
+    # Отключаем привилегированный режим
+    security_opt:
+      - no-new-privileges:true
+
+  # ---------------------------------------------------------------------------
+  # Backend - Express + Prisma API
+  # ---------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      cache_from:
+        - litebricks-backend:latest
+    image: litebricks-backend:latest
+    container_name: litebricks-backend
+    restart: unless-stopped
+    # Внутренний порт (доступ только через nginx)
+    expose:
+      - "3001"
+    # Переменные окружения из .env файла
+    env_file:
+      - ./backend/.env
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - DATABASE_URL=${DATABASE_URL:-postgresql://${POSTGRES_USER:-booking_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-booking_db}?schema=public}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+      - FRONTEND_URL=${FRONTEND_URL:-https://litebrick.ru}
+      - PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING=1
+    # Google Calendar credentials (монтируем как secret)
+    volumes:
+      - ./backend/google-key.json:/app/google-key.json:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - litebricks-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    # Лимиты ресурсов
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    # Логирование
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+    # Безопасность
+    security_opt:
+      - no-new-privileges:true
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL - База данных
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:15-alpine
+    container_name: litebricks-postgres
+    restart: unless-stopped
+    # Внутренний порт (доступ только изнутри сети)
+    expose:
+      - "5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-booking_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-booking_db}
+      # Оптимизации PostgreSQL для production
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - litebricks-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-booking_user} -d ${POSTGRES_DB:-booking_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    # Лимиты ресурсов
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    # Логирование
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # Безопасность
+    security_opt:
+      - no-new-privileges:true
+
+  # ---------------------------------------------------------------------------
+  # Redis - Кэширование и сессии
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: litebricks-redis
+    restart: unless-stopped
+    # Внутренний порт (доступ только изнутри сети)
+    expose:
+      - "6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - litebricks-network
+    # Команда запуска Redis с оптимизациями
+    command: >
+      sh -c "
+        if [ -n \"$$REDIS_PASSWORD\" ]; then
+          redis-server 
+            --appendonly yes 
+            --requirepass \"$$REDIS_PASSWORD\"
+            --maxmemory 128mb
+            --maxmemory-policy allkeys-lru
+            --save 900 1
+            --save 300 10
+            --save 60 10000
+        else
+          redis-server 
+            --appendonly yes
+            --maxmemory 128mb
+            --maxmemory-policy allkeys-lru
+            --save 900 1
+            --save 300 10
+            --save 60 10000
+        fi
+      "
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    # Лимиты ресурсов
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    # Логирование
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # Безопасность
+    security_opt:
+      - no-new-privileges:true
+
+# -----------------------------------------------------------------------------
+# Сети
+# -----------------------------------------------------------------------------
+networks:
+  litebricks-network:
+    driver: bridge
+    # Изоляция сети
+    internal: false
+
+# -----------------------------------------------------------------------------
+# Volumes (persistent storage)
+# -----------------------------------------------------------------------------
+volumes:
+  # Данные PostgreSQL
+  postgres_data:
+    driver: local
+  # Данные Redis
+  redis_data:
+    driver: local
+  # Логи Nginx
+  nginx_logs:
+    driver: local

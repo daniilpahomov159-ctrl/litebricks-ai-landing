@@ -1,8 +1,10 @@
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 import { config } from './config/index.js';
 import { logger } from './utils/logger.js';
 import { initGoogleCalendar } from './utils/googleCalendar.js';
+import { initRedis, closeRedis, isRedisConnected } from './utils/redis.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { bookingRateLimiter } from './middleware/rateLimiter.js';
 import availabilityRouter from './routes/availability.js';
@@ -11,11 +13,47 @@ import { startRetentionJobs } from './jobs/retention.js';
 
 const app = express();
 
-// Middleware
+// Security headers with Helmet
+// Настройка для production и development
+if (config.nodeEnv === 'production') {
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+        fontSrc: ["'self'", "https://fonts.gstatic.com"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"], // Для Remix/Vite в development
+        imgSrc: ["'self'", "data:", "https:"],
+        connectSrc: ["'self'", "https://litebrick.ru"],
+        frameAncestors: ["'self'"],
+      },
+    },
+    hsts: {
+      maxAge: 31536000,
+      includeSubDomains: true,
+      preload: true,
+    },
+    frameguard: { action: 'sameorigin' },
+    noSniff: true,
+    xssFilter: true,
+  }));
+} else {
+  // Более мягкие настройки для development
+  app.use(helmet({
+    contentSecurityPolicy: false, // Отключаем CSP в development для удобства
+    hsts: false, // Отключаем HSTS в development
+  }));
+}
+
+// CORS настройки
+const frontendUrl = process.env.FRONTEND_URL || (config.nodeEnv === 'production' ? 'https://litebrick.ru' : '*');
 app.use(cors({
-  origin: process.env.FRONTEND_URL || '*',
+  origin: frontendUrl === '*' ? '*' : [frontendUrl, 'https://litebrick.ru', 'http://localhost:5173'],
   credentials: true,
+  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -39,6 +77,7 @@ app.get('/health', (req, res) => {
     status: 'ok', 
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
+    redis: isRedisConnected() ? 'connected' : 'disconnected',
   });
 });
 
@@ -53,6 +92,14 @@ app.use(errorHandler);
 // Инициализация сервисов
 async function start() {
   try {
+    // Инициализация Redis
+    const redisReady = await initRedis();
+    if (redisReady) {
+      logger.info('Redis инициализирован и готов к работе');
+    } else {
+      logger.warn('Redis недоступен, работаем без кеша');
+    }
+    
     // Инициализация Google Calendar
     initGoogleCalendar();
     
@@ -72,11 +119,13 @@ async function start() {
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   logger.info('SIGTERM received, shutting down gracefully');
+  await closeRedis();
   process.exit(0);
 });
 
 process.on('SIGINT', async () => {
   logger.info('SIGINT received, shutting down gracefully');
+  await closeRedis();
   process.exit(0);
 });
 

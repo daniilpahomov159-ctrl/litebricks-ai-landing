@@ -90,11 +90,12 @@ body {
   font-size: 16px;
   line-height: 1.6;
   color: var(--color-white);
-  background: linear-gradient(135deg, #07192C 0%, #000000 50%, #003983 100%);
+  background: var(--body-gradient, linear-gradient(135deg, #07192C 0%, #000000 50%, #003983 100%));
   background-attachment: fixed;
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  transition: background 0.5s ease;
 }
 
 main {
@@ -131,6 +132,9 @@ main {
   justify-content: space-between;
   height: 60px;
   box-sizing: border-box;
+  /* Нужен контекст позиционирования, чтобы центрировать навигацию
+     абсолютным позиционированием относительно всей шапки */
+  position: relative;
 }
 
 .header__logo {
@@ -168,6 +172,13 @@ main {
 }
 
 .header__nav {
+  /* Центрируем заголовки секций по всей ширине хедера.
+     Лого остаётся слева, бургер/прочие элементы — справа,
+     а nav визуально зафиксирован по центру шапки. */
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
   display: flex;
   align-items: center;
   gap: 1.25rem;
@@ -244,10 +255,14 @@ main {
   height: 2px;
   background: var(--color-white);
   transition: all var(--transition-base);
+  /* Центр используем как опорную точку, чтобы при анимации
+     получался ровный, симметричный крестик */
+  transform-origin: center;
 }
 
 .header__burger.active .header__burger-line:nth-child(1) {
-  transform: rotate(45deg) translate(5px, 5px);
+  /* Верхняя полоска поворачивается и опускается к центру */
+  transform: translateY(6px) rotate(45deg);
 }
 
 .header__burger.active .header__burger-line:nth-child(2) {
@@ -255,7 +270,53 @@ main {
 }
 
 .header__burger.active .header__burger-line:nth-child(3) {
-  transform: rotate(-45deg) translate(7px, -6px);
+  /* Нижняя полоска поворачивается и поднимается к центру */
+  transform: translateY(-6px) rotate(-45deg);
+}
+
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: var(--radius-md);
+  color: var(--color-white);
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  white-space: nowrap;
+}
+
+.theme-toggle:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: var(--color-primary);
+  transform: translateY(-1px);
+}
+
+.theme-toggle__icon {
+  font-size: 1.125rem;
+  line-height: 1;
+}
+
+.theme-toggle__label {
+  font-size: 0.75rem;
+}
+
+@media (max-width: 968px) {
+  .theme-toggle__label {
+    display: none;
+  }
+  
+  .theme-toggle {
+    padding: 0.5rem;
+    min-width: 40px;
+    justify-content: center;
+  }
 }
 
 .mobile-nav__overlay {
@@ -326,6 +387,8 @@ main {
   position: relative;
   transition: color var(--transition-fast);
   white-space: nowrap;
+  /* Для мобильного меню оставляем выравнивание по умолчанию (слева),
+     чтобы заголовки читались естественно в раскрытом списке. */
 }
 
 .mobile-nav__link::after {
@@ -411,6 +474,15 @@ main {
   color: var(--color-white);
 }
 
+.section__title--center {
+  text-align: center;
+}
+
+/* Универсальный маркер секций (например, / start в блоке подготовки) */
+.section__marker {
+  display: inline-block;
+}
+
 .section__subtitle {
   font-family: var(--font-subheading);
   font-weight: 500;
@@ -427,6 +499,42 @@ main {
   color: rgba(255, 255, 255, 0.8);
   margin-bottom: var(--spacing-lg);
   max-width: 600px;
+}
+
+.section__description--center {
+  text-align: center;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Описание в блоке подготовки:
+   делаем чуть шире, чтобы текст уверенно умещался в две строки на десктопе. */
+.section__description--preparation {
+  max-width: 900px;
+}
+
+/* Описание в блоке записи на консультацию:
+   на десктопе удерживаем в одну строку, на мобильных позволяем перенос. */
+.section__description--booking {
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .section__description--booking {
+    white-space: normal;
+  }
+}
+
+/* FAQ: на десктопе держим описание в одну строку */
+.section__description--faq {
+  max-width: none;
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .section__description--faq {
+    white-space: normal;
+  }
 }
 
 /* ============================================
@@ -2011,8 +2119,11 @@ select option {
   border: 3px solid var(--color-white);
   border-radius: 50px;
   padding: 1.25rem 2rem;
-  font-family: var(--font-epilepsy);
-  font-size: 1rem;
+  /* Используем акцентный шрифт, как для маркера / start,
+     чтобы названия этапов выглядели так же технологично. */
+  font-family: var(--font-accent);
+  /* Чуть увеличенный размер для лучшей читаемости на всех устройствах */
+  font-size: 1.1rem;
   font-weight: 700;
   color: var(--color-white);
   text-align: center;
@@ -2328,6 +2439,9 @@ select option {
   font-weight: 600;
   letter-spacing: 0.04em;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
   transition: transform var(--transition-base), background-color var(--transition-base), color var(--transition-base);
 }
 
@@ -2348,6 +2462,14 @@ select option {
 .preparation-nav__btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.preparation-nav__icon {
+  font-size: 1.1rem;
+}
+
+.preparation-nav__label {
+  font-size: 0.8rem;
 }
 
 .preparation-detail__cta {
@@ -2453,6 +2575,9 @@ select option {
   font-size: 0.9rem;
   color: rgba(255, 255, 255, 0.8);
   margin-bottom: var(--spacing-xs);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
 }
 
 .legal__contact a {
@@ -2463,6 +2588,39 @@ select option {
 
 .legal__contact a:hover {
   color: var(--color-primary-dark);
+}
+
+.legal__contact-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* Делаем «прозрачную» круглую кликабельную область,
+     сами иконки отрисованы уже в нужных цветных кругах (как на макете). */
+  background: transparent;
+  color: inherit;
+  transition: transform var(--transition-fast);
+}
+
+.legal__contact-icon svg {
+  width: 26px;
+  height: 26px;
+}
+
+.legal__contact-image {
+  /* Иконка заполняет весь круг, чтобы выглядеть как полноценная
+     кнопка‑бейдж, как на референсе. */
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  border-radius: 50%;
+}
+
+.legal__contact-icon:hover {
+  transform: translateY(-1px) scale(1.04);
 }
 
 .legal__docs {
@@ -2498,44 +2656,6 @@ select option {
   line-height: 1.5;
 }
 
-/* ============================================
-   FLOATING CTA
-   ============================================ */
-
-.floating-cta {
-  position: fixed;
-  bottom: 2rem;
-  right: 2rem;
-  z-index: 999;
-  padding: 1rem 1.5rem;
-  background: var(--color-primary);
-  color: var(--color-white);
-  border: none;
-  border-radius: var(--radius-full);
-  font-family: var(--font-accent);
-  font-size: 0.875rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  cursor: pointer;
-  box-shadow: var(--shadow-lg);
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  transition: all var(--transition-base);
-  text-decoration: none;
-}
-
-.floating-cta:hover {
-  background: var(--color-primary-dark);
-  transform: translateY(-4px);
-  box-shadow: var(--shadow-glow);
-}
-
-.floating-cta__icon {
-  width: 20px;
-  height: 20px;
-}
 
 /* ============================================
    АДАПТИВ
@@ -2565,6 +2685,50 @@ select option {
   .hero__content {
     max-width: 100%;
     padding: var(--spacing-lg);
+  }
+
+  /* Дополнительные горизонтальные отступы для CTA-кнопки,
+     чтобы на мобильных она не прилипала к краям экрана. */
+  .hero__actions {
+    padding: 0 1.5rem;
+  }
+  
+  .hero__actions .btn {
+    width: 100%;
+    /* Чуть меньше размер шрифта на мобильных, чтобы длинный текст
+       «Бесплатный аудит бизнес-процессов» читался комфортнее и не
+       занимал слишком много высоты. */
+    font-size: 0.8rem;
+    padding: 0.9rem 1.5rem;
+    /* Разрешаем перенос строк и выравниваем текст по центру,
+       чтобы длинный заголовок смотрелся аккуратно на 2–3 строках. */
+    white-space: normal;
+    text-align: center;
+  }
+  
+  /* На мобильных в блоке подготовки оставляем только стрелки,
+     подписи «Назад»/«Вперёд» скрываем, а сами кнопки делаем компактнее. */
+  .preparation-nav__btn {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.75rem;
+  }
+
+  .preparation-nav__label {
+    display: none;
+  }
+
+  /* На мобильных скрываем маркеры секций (/ start, / FAQ, / 100%),
+     чтобы заголовки оставались лаконичными. */
+  .section__marker--preparation,
+  .section__marker--faq,
+  .section__marker--booking {
+    display: none;
+  }
+
+  /* На мобильных скрываем маркер / start в блоке подготовки,
+     чтобы шапка секции оставалась чище и читабельнее. */
+  .section__marker--preparation {
+    display: none;
   }
   
   .hero__fog--layer1,
@@ -2625,13 +2789,6 @@ select option {
   
   .steps {
     grid-template-columns: 1fr;
-  }
-  
-  .floating-cta {
-    bottom: 1rem;
-    right: 1rem;
-    padding: 0.75rem 1.25rem;
-    font-size: 0.75rem;
   }
 }
 

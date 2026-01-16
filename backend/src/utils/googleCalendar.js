@@ -1,6 +1,7 @@
 import { google } from 'googleapis';
 import { config } from '../config/index.js';
 import { logger } from './logger.js';
+import { existsSync } from 'fs';
 
 let calendarClient = null;
 
@@ -11,7 +12,19 @@ export function initGoogleCalendar() {
   try {
     let auth;
     
-    // Используем Service Account, если доступен
+    // Пытаемся использовать JSON файл (если существует)
+    const keyFile = '/app/google-key.json';
+    if (existsSync(keyFile)) {
+      auth = new google.auth.GoogleAuth({
+        keyFile: keyFile,
+        scopes: ['https://www.googleapis.com/auth/calendar'],
+      });
+      logger.info('Google Calendar: инициализирован через JSON файл');
+      calendarClient = google.calendar({ version: 'v3', auth });
+      return calendarClient;
+    }
+    
+    // Используем Service Account из переменных окружения, если доступен
     if (config.googleCalendar.serviceAccountEmail && config.googleCalendar.privateKey) {
       auth = new google.auth.JWT(
         config.googleCalendar.serviceAccountEmail,
@@ -86,6 +99,11 @@ export async function getCalendarEvents(timeMin, timeMax) {
     return response.data.items || [];
   } catch (error) {
     logger.error({ error, timeMin, timeMax }, 'Ошибка при получении событий из Google Calendar');
+    // В режиме разработки возвращаем пустой список вместо ошибки
+    if (config.nodeEnv === 'development') {
+      logger.warn('Режим разработки: возвращаем пустой список событий');
+      return [];
+    }
     throw error;
   }
 }

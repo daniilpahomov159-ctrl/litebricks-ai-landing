@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import ThemeToggle from './ThemeToggle';
 
 const Header = () => {
   const [isScrolled, setIsScrolled] = useState(false);
@@ -100,7 +101,7 @@ const Header = () => {
           <div className="header__logo-icon">
             <img 
               src="/docs/Логотип_без фона_белый.svg" 
-              alt="LITEBRICK" 
+                alt="LITEBRICK — Внедрение искусственного интеллекта в бизнес" 
               className="header__logo-img"
             />
           </div>
@@ -120,27 +121,22 @@ const Header = () => {
           ))}
         </nav>
 
-        <a
-          href="#booking"
-          className="header__cta"
-          onClick={(e) => { e.preventDefault(); scrollToSection('booking'); }}
-        >
-          Аудит бизнеса
-        </a>
-
-        <button
-          className={`header__burger ${isMobileMenuOpen ? 'active' : ''}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            setIsMobileMenuOpen(!isMobileMenuOpen);
-          }}
-          aria-label="Меню"
-          aria-expanded={isMobileMenuOpen}
-        >
-          <span className="header__burger-line"></span>
-          <span className="header__burger-line"></span>
-          <span className="header__burger-line"></span>
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <ThemeToggle />
+          <button
+            className={`header__burger ${isMobileMenuOpen ? 'active' : ''}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsMobileMenuOpen(!isMobileMenuOpen);
+            }}
+            aria-label="Меню"
+            aria-expanded={isMobileMenuOpen}
+          >
+            <span className="header__burger-line"></span>
+            <span className="header__burger-line"></span>
+            <span className="header__burger-line"></span>
+          </button>
+        </div>
       </div>
 
       {/* Overlay для затемнения фона */}
@@ -162,13 +158,9 @@ const Header = () => {
             {link.label}
           </a>
         ))}
-        <a
-          href="#booking"
-          className="mobile-nav__cta"
-          onClick={(e) => { e.preventDefault(); scrollToSection('booking'); }}
-        >
-          Аудит бизнеса
-        </a>
+        <div style={{ padding: '0.75rem 0', borderTop: '1px solid rgba(255, 255, 255, 0.1)', marginTop: '0.5rem' }}>
+          <ThemeToggle />
+        </div>
       </nav>
     </header>
   );

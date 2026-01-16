@@ -1,0 +1,28 @@
+# Robots.txt для LITEBRICK
+# https://litebrick.ru
+
+# Разрешаем всем поисковикам индексировать весь сайт
+User-agent: *
+Allow: /
+
+# Запрещаем индексацию служебных директорий
+Disallow: /api/
+Disallow: /build/
+Disallow: /_next/
+Disallow: /node_modules/
+
+# Специальные правила для Яндекса
+User-agent: Yandex
+Allow: /
+
+# Специальные правила для Google
+User-agent: Googlebot
+Allow: /
+
+# Ссылка на sitemap
+Sitemap: https://litebrick.ru/sitemap.xml
+
+# Дополнительные настройки
+# Частота обхода (для Яндекса)
+Host: litebrick.ru
+

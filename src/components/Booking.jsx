@@ -3,30 +3,62 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 const STORAGE_KEY = 'bookingForm:v1';
 
 const Booking = () => {
-  // Восстановление состояния из localStorage при монтировании
-  const getInitialState = () => {
+  // Проверка наличия подтвержденной брони
+  const getBookingInfo = () => {
+    // localStorage доступен только в браузере, не на сервере (SSR)
+    if (typeof window === 'undefined') return null;
+    
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
         
-        // Очистка localStorage, если бронь уже прошла (endUtc < Date.now())
-        if (parsed.endUtc) {
+        // Проверяем, является ли это подтвержденной бронью
+        if (parsed.isConfirmed && parsed.endUtc) {
           const endUtc = new Date(parsed.endUtc);
           const now = new Date();
+          
+          // Если бронь уже прошла - очищаем localStorage
           if (endUtc < now) {
-            // Бронь прошла - очищаем localStorage
             localStorage.removeItem(STORAGE_KEY);
-            return {
-              date: '',
-              time: '',
-              contact: '',
-              consentPersonal: false,
-            };
+            return null;
           }
+          
+          // Возвращаем информацию о брони
+          return {
+            date: parsed.date,
+            time: parsed.time,
+            contact: parsed.contact,
+            startUtc: parsed.startUtc,
+            endUtc: parsed.endUtc,
+            isConfirmed: true,
+          };
+        }
+      }
+    } catch (error) {
+      console.error('Ошибка при восстановлении данных из localStorage:', error);
+    }
+    return null;
+  };
+
+  // Восстановление состояния формы (для незавершенного заполнения)
+  const getInitialFormState = () => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        
+        // Если это подтвержденная бронь - не восстанавливаем форму
+        if (parsed.isConfirmed) {
+          return {
+            date: '',
+            time: '',
+            contact: '',
+            consentPersonal: false,
+          };
         }
         
-        // Возвращаем только поля формы, без служебного поля endUtc
+        // Возвращаем только поля формы
         return {
           date: parsed.date || '',
           time: parsed.time || '',
@@ -42,12 +74,13 @@ const Booking = () => {
       time: '',
       contact: '',
       consentPersonal: false,
-      marketingConsent: false,
     };
   };
 
-  const [formData, setFormData] = useState(getInitialState);
+  const [bookingInfo, setBookingInfo] = useState(getBookingInfo);
+  const [formData, setFormData] = useState(getInitialFormState);
   const [errors, setErrors] = useState({});
+  const [successMessage, setSuccessMessage] = useState('');
   // Слоты времени (только свободные, возвращаются с API)
   const [availableTimeSlots, setAvailableTimeSlots] = useState([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
@@ -104,6 +137,10 @@ const Booking = () => {
     if (errors[name]) {
       setErrors(prev => ({ ...prev, [name]: '' }));
     }
+    // При любом изменении формы убираем предыдущий success, чтобы не сбивать пользователя
+    if (successMessage) {
+      setSuccessMessage('');
+    }
   };
 
   // Загрузка свободных слотов времени из API
@@ -128,25 +165,32 @@ const Booking = () => {
         const slots = await response.json();
         
         // Преобразуем слоты из формата API (startUtc, endUtc) в формат времени для отображения
+        console.log('Получены слоты от API:', slots);
         const timeSlotsSet = new Set();
         
         slots.forEach(slot => {
           const startDate = new Date(slot.startUtc);
-          // Конвертируем UTC в московское время
-          const moscowTimeString = startDate.toLocaleString('ru-RU', {
+          
+          // Самый надежный способ: получаем часы напрямую из московского времени
+          const hourString = startDate.toLocaleString('ru-RU', {
             timeZone: 'Europe/Moscow',
             hour: '2-digit',
-            minute: '2-digit',
             hour12: false,
           });
-          // Извлекаем час и форматируем как HH:00
-          const hours = moscowTimeString.split(':')[0].trim();
-          const timeSlot = `${hours.padStart(2, '0')}:00`;
+          
+          console.log('UTC:', slot.startUtc, '=> МСК час:', hourString);
+          
+          // Очищаем от всех нецифровых символов (пробелы, неразрывные пробелы и т.д.)
+          const hours = hourString.replace(/\D/g, '').padStart(2, '0');
+          const timeSlot = `${hours}:00`;
+          
+          console.log('Итоговый слот:', timeSlot);
           timeSlotsSet.add(timeSlot);
         });
         
         // Преобразуем Set в отсортированный массив
         const uniqueTimeSlots = Array.from(timeSlotsSet).sort();
+        console.log('Уникальные слоты после обработки:', uniqueTimeSlots);
         setAvailableTimeSlots(uniqueTimeSlots);
         
         // Если выбранное время больше не доступно, сбрасываем его
@@ -208,10 +252,19 @@ const Booking = () => {
       return;
     }
     
+    // Сбрасываем предыдущую успешную надпись перед новой попыткой
+    setSuccessMessage('');
+
     if (!validate()) {
       return;
     }
 
+    // Создаем дату с явным указанием московского часового пояса (+03:00)
+    // Объявляем переменные ДО try блока, чтобы они были доступны после успешной отправки
+    const moscowTimeString = `${formData.date}T${formData.time}:00+03:00`;
+    const startDate = new Date(moscowTimeString);
+    const endDate = new Date(startDate.getTime() + 60 * 60 * 1000); // +60 минут (1 час)
+    
     try {
       // ===== РАБОТА С ВРЕМЕНЕМ В МОСКОВСКОМ ЧАСОВОМ ПОЯСЕ (UTC+3) =====
       // 1. Пользователь выбирает время в московском часовом поясе (например: 10:00)
@@ -224,11 +277,6 @@ const Booking = () => {
         date: formData.date,
         time: formData.time,
       });
-      
-      // Создаем дату с явным указанием московского часового пояса (+03:00)
-      const moscowTimeString = `${formData.date}T${formData.time}:00+03:00`;
-      const startDate = new Date(moscowTimeString);
-      const endDate = new Date(startDate.getTime() + 60 * 60 * 1000); // +60 минут (1 час)
       
       console.log('Время конвертировано в UTC для отправки:', {
         startUtc: startDate.toISOString(),
@@ -303,9 +351,26 @@ const Booking = () => {
       }
       
       // Успешная отправка
-      alert('Спасибо! Мы свяжемся с вами для подтверждения времени консультации.');
+      // Сохраняем информацию о подтвержденной брони в localStorage
+      const confirmedBooking = {
+        date: formData.date,
+        time: formData.time,
+        contact: formData.contact,
+        startUtc: startDate.toISOString(),
+        endUtc: endDate.toISOString(),
+        isConfirmed: true,
+      };
       
-      // Очистка формы и localStorage при успешной отправке
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(confirmedBooking));
+      } catch (error) {
+        console.error('Ошибка при сохранении подтвержденной брони:', error);
+      }
+      
+      // Обновляем состояние для отображения информации о брони
+      setBookingInfo(confirmedBooking);
+      
+      // Очищаем форму и сообщения
       const emptyState = {
         date: '',
         time: '',
@@ -314,12 +379,13 @@ const Booking = () => {
       };
       setFormData(emptyState);
       setErrors({});
-      localStorage.removeItem(STORAGE_KEY);
+      setSuccessMessage(''); // Очищаем сообщение, так как теперь показываем карточку
     } catch (error) {
       console.error('Ошибка при отправке формы:', error);
       setErrors({
         _general: error.message || 'Произошла ошибка. Пожалуйста, попробуйте еще раз.',
       });
+      setSuccessMessage('');
     }
   };
 
@@ -411,6 +477,25 @@ const Booking = () => {
     return days;
   };
 
+  // Функция отмены брони
+  const handleCancelBooking = () => {
+    if (window.confirm('Вы уверены, что хотите отменить запись?')) {
+      // Очищаем localStorage
+      localStorage.removeItem(STORAGE_KEY);
+      // Сбрасываем состояние
+      setBookingInfo(null);
+      setSuccessMessage('');
+      // Показываем форму снова
+      const emptyState = {
+        date: '',
+        time: '',
+        contact: '',
+        consentPersonal: false,
+      };
+      setFormData(emptyState);
+    }
+  };
+
   const handleDateSelect = (date) => {
     // Формируем строку даты напрямую из компонентов, избегая проблем с часовыми поясами
     const year = date.getFullYear();
@@ -459,11 +544,203 @@ const Booking = () => {
     selectedDate.setHours(0, 0, 0, 0);
   }
 
+  // Форматирование даты и времени для отображения информации о брони
+  const formatBookingDate = (dateString) => {
+    if (!dateString) return '';
+    const [year, month, day] = dateString.split('-').map(Number);
+    const date = new Date(year, month - 1, day);
+    return date.toLocaleDateString('ru-RU', { 
+      day: 'numeric', 
+      month: 'long', 
+      year: 'numeric',
+      weekday: 'long'
+    });
+  };
+
+  // Если есть подтвержденная бронь - показываем информацию о записи
+  if (bookingInfo) {
+    return (
+      <div className="section">
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'flex-start',
+            marginBottom: '2rem',
+            flexWrap: 'wrap',
+            gap: '1rem',
+          }}
+        >
+          <h2 className="section__title" style={{ marginBottom: 0 }}>
+            Ваша запись на консультацию
+          </h2>
+          <span
+            className="section__marker section__marker--booking"
+            style={{ fontFamily: 'var(--font-accent)', fontSize: '1.5rem', color: 'var(--color-primary)' }}
+          >
+            / 100%
+          </span>
+        </div>
+        <p className="section__description section__description--booking">
+          Мы ждем вас на консультации. Информация о встрече сохранена
+        </p>
+
+        <div style={{
+          padding: '2rem',
+          background: 'linear-gradient(135deg, rgba(67, 113, 244, 0.12), rgba(0, 56, 131, 0.15))',
+          border: '1px solid rgba(67, 113, 244, 0.4)',
+          borderRadius: 'var(--radius-lg)',
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
+        }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.75rem',
+            marginBottom: '1.5rem',
+          }}>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" style={{ color: 'var(--color-primary)' }}>
+              <path d="M9 12L11 14L15 10M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            <h3 style={{
+              margin: 0,
+              fontFamily: 'var(--font-body)',
+              fontSize: '1.25rem',
+              fontWeight: '600',
+              color: 'var(--color-white)',
+            }}>
+              Запись подтверждена
+            </h3>
+          </div>
+
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '1rem',
+          }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: '1rem',
+            }}>
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" style={{ color: 'rgba(255, 255, 255, 0.7)', marginTop: '2px', flexShrink: 0 }}>
+                <path d="M6 2V4M14 2V4M3 8H17M4 4H16C16.5304 4 17.0391 4.21071 17.4142 4.58579C17.7893 4.96086 18 5.46957 18 6V16C18 16.5304 17.7893 17.0391 17.4142 17.4142C17.0391 17.7893 16.5304 18 16 18H4C3.46957 18 2.96086 17.7893 2.58579 17.4142C2.21071 17.0391 2 16.5304 2 16V6C2 5.46957 2.21071 4.96086 2.58579 4.58579C2.96086 4.21071 3.46957 4 4 4Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              <div>
+                <div style={{
+                  fontFamily: 'var(--font-body)',
+                  fontSize: '0.875rem',
+                  color: 'rgba(255, 255, 255, 0.7)',
+                  marginBottom: '0.25rem',
+                }}>
+                  Дата и время
+                </div>
+                <div style={{
+                  fontFamily: 'var(--font-body)',
+                  fontSize: '1.125rem',
+                  fontWeight: '600',
+                  color: 'var(--color-white)',
+                  textTransform: 'capitalize',
+                }}>
+                  {formatBookingDate(bookingInfo.date)}, {bookingInfo.time}
+                </div>
+              </div>
+            </div>
+
+            <div style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: '1rem',
+            }}>
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" style={{ color: 'rgba(255, 255, 255, 0.7)', marginTop: '2px', flexShrink: 0 }}>
+                <path d="M3 8L10 13L17 8M3 12L10 17L17 12M3 4L10 9L17 4L10 1L3 4Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              <div>
+                <div style={{
+                  fontFamily: 'var(--font-body)',
+                  fontSize: '0.875rem',
+                  color: 'rgba(255, 255, 255, 0.7)',
+                  marginBottom: '0.25rem',
+                }}>
+                  Контакт для связи
+                </div>
+                <div style={{
+                  fontFamily: 'var(--font-body)',
+                  fontSize: '1.125rem',
+                  fontWeight: '600',
+                  color: 'var(--color-white)',
+                }}>
+                  {bookingInfo.contact}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style={{
+            marginTop: '2rem',
+            paddingTop: '1.5rem',
+            borderTop: '1px solid rgba(255, 255, 255, 0.15)',
+          }}>
+            <button
+              type="button"
+              onClick={handleCancelBooking}
+              className="btn"
+              style={{
+                width: '100%',
+                padding: '0.875rem 1.5rem',
+                background: 'rgba(255, 255, 255, 0.1)',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                borderRadius: 'var(--radius-md)',
+                color: 'var(--color-white)',
+                fontFamily: 'var(--font-body)',
+                fontSize: '1rem',
+                fontWeight: '500',
+                cursor: 'pointer',
+                transition: 'all var(--transition-fast)',
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.background = 'rgba(255, 255, 255, 0.15)';
+                e.target.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.background = 'rgba(255, 255, 255, 0.1)';
+                e.target.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+              }}
+            >
+              Отменить запись
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Если нет подтвержденной брони - показываем форму
   return (
     <div className="section">
-      <h2 className="section__title">Записаться на консультацию</h2>
-      <p className="section__description">
-        Выберите удобное время для бесплатной консультации. Мы обсудим ваши задачи и возможности внедрения ИИ.
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-start',
+          marginBottom: '2rem',
+          flexWrap: 'wrap',
+          gap: '1rem',
+        }}
+      >
+        <h2 className="section__title" style={{ marginBottom: 0 }}>
+          Записаться на консультацию
+        </h2>
+        {/* Маркер секции: /100% — в том же стиле, что / start и / FAQ.
+            Отображается только на десктопе (на мобильных скрываем через CSS). */}
+        <span
+          className="section__marker section__marker--booking"
+          style={{ fontFamily: 'var(--font-accent)', fontSize: '1.5rem', color: 'var(--color-primary)' }}
+        >
+          / 100%
+        </span>
+      </div>
+      <p className="section__description section__description--booking">
+        Выберите удобное время для бесплатной консультации. Мы обсудим ваши задачи и возможности внедрения ИИ
       </p>
 
       <form className="form" onSubmit={handleSubmit}>
@@ -890,6 +1167,26 @@ const Booking = () => {
             border: '1px solid #F97316'
           }}>
             {errors._general}
+          </div>
+        )}
+
+        {successMessage && (
+          <div
+            style={{
+              marginTop: errors._general ? '0.75rem' : '1rem',
+              padding: '0.75rem 1rem',
+              borderRadius: '6px',
+              fontFamily: 'var(--font-body)',
+              fontSize: '0.95rem',
+              // Нежный синий информер в фирменных цветах
+              background:
+                'linear-gradient(135deg, rgba(67, 113, 244, 0.14), rgba(0, 56, 131, 0.18))',
+              border: '1px solid rgba(67, 113, 244, 0.6)',
+              color: 'rgba(255, 255, 255, 0.9)',
+              boxShadow: '0 4px 16px rgba(0, 0, 0, 0.25)',
+            }}
+          >
+            {successMessage}
           </div>
         )}
 

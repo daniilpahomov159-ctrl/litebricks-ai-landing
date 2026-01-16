@@ -2,6 +2,7 @@ import cron from 'node-cron';
 import { prisma } from '../utils/prisma.js';
 import { config } from '../config/index.js';
 import { logger } from '../utils/logger.js';
+import { deleteCalendarEvent } from '../utils/googleCalendar.js';
 
 /**
  * Удаление прошедших броней через указанное время после завершения
@@ -31,6 +32,32 @@ async function deletePastBookings() {
           deletedAt: now.toISOString(),
         };
         
+        // Удалить событие из Google Calendar перед удалением брони из БД
+        if (booking.googleEventId) {
+          try {
+            await deleteCalendarEvent(booking.googleEventId);
+            logger.debug({ 
+              bookingId, 
+              googleEventId: booking.googleEventId 
+            }, 'Событие удалено из Google Calendar при автоматическом удалении брони');
+          } catch (error) {
+            // Если событие уже удалено или не найдено (404) - это нормально
+            if (error.code === 404) {
+              logger.debug({ 
+                bookingId, 
+                googleEventId: booking.googleEventId 
+              }, 'Событие уже было удалено из Google Calendar');
+            } else {
+              logger.warn({ 
+                error, 
+                bookingId,
+                googleEventId: booking.googleEventId 
+              }, 'Ошибка при удалении события из Google Calendar (продолжаем удаление брони)');
+            }
+            // Не прерываем выполнение, если не удалось удалить событие
+          }
+        }
+        
         // Удалить запись брони
         await prisma.booking.delete({
           where: { id: bookingId },
@@ -45,7 +72,7 @@ async function deletePastBookings() {
           },
         });
       } catch (error) {
-        logger.error({ error, bookingId }, 'Ошибка при удалении брони');
+        logger.error({ error, bookingId: booking.id }, 'Ошибка при удалении брони');
       }
     }
     

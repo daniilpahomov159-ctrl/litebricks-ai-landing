@@ -82,7 +82,7 @@ const About = () => {
           <div className="about-card__graphic"></div>
           <img
             src="/docs/челик.png"
-            alt="Предприниматель"
+            alt="Предприниматель работает с искусственным интеллектом на ноутбуке"
             className="about-card__character-image"
           />
         </div>
@@ -90,28 +90,23 @@ const About = () => {
       
       <div className="grid-3" style={{ marginTop: 'calc(1rem + 70px)' }}>
         {cards.map((card, index) => (
-          <div
+          <article
             key={index}
             ref={(el) => (cardRefs.current[index] = el)}
             className={`card card--fade-in ${visibleCards.includes(index) ? 'card--visible' : ''}`}
             style={{ transitionDelay: `${index * 0.15}s` }}
           >
-            <div className="card__title">{card.title}</div>
-            <div className="card__text">
+            <h3 className="card__title">{card.title}</h3>
+            <p className="card__text">
               {card.text}
               {card.highlight && (
                 <>
                   <br />
-                  <span className="card__highlight-text">{card.highlight}</span>
+                  <strong className="card__highlight-text">{card.highlight}</strong>
                 </>
               )}
-            </div>
-            <div className="card__arrow-bottom">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M12 5V19M12 19L19 12M12 19L5 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </div>
-          </div>
+            </p>
+          </article>
         ))}
       </div>
 

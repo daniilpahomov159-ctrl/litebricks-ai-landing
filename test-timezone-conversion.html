@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Тест конвертации времени</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #fff;
+        }
+        .test-result {
+            background: #2a2a2a;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 8px;
+            border-left: 4px solid #4371f4;
+        }
+        .test-result pre {
+            background: #1a1a1a;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+        h1 {
+            color: #4371f4;
+        }
+        .error {
+            border-left-color: #f97316;
+        }
+    </style>
+</head>
+<body>
+    <h1>Тест конвертации UTC в московское время</h1>
+    <div id="results"></div>
+
+    <script>
+        const results = document.getElementById('results');
+
+        function addResult(title, content, isError = false) {
+            const div = document.createElement('div');
+            div.className = 'test-result' + (isError ? ' error' : '');
+            div.innerHTML = `<h3>${title}</h3><pre>${content}</pre>`;
+            results.appendChild(div);
+        }
+
+        // Тестовые данные из API
+        const testSlots = [
+            { startUtc: "2026-01-13T07:00:00.000Z", endUtc: "2026-01-13T08:00:00.000Z" },
+            { startUtc: "2026-01-13T10:00:00.000Z", endUtc: "2026-01-13T11:00:00.000Z" },
+            { startUtc: "2026-01-13T11:00:00.000Z", endUtc: "2026-01-13T12:00:00.000Z" },
+        ];
+
+        addResult('Исходные данные от API', JSON.stringify(testSlots, null, 2));
+
+        // Тест 1: Старый метод (toLocaleString)
+        try {
+            const results1 = [];
+            testSlots.forEach(slot => {
+                const startDate = new Date(slot.startUtc);
+                const moscowTimeString = startDate.toLocaleString('ru-RU', {
+                    timeZone: 'Europe/Moscow',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false,
+                });
+                
+                const charCodes = [...moscowTimeString].map(c => 
+                    `'${c}' (${c.charCodeAt(0)})`
+                ).join(', ');
+                
+                const hours = moscowTimeString.split(':')[0].trim();
+                const timeSlot = `${hours.padStart(2, '0')}:00`;
+                
+                results1.push({
+                    utc: slot.startUtc,
+                    moscowString: moscowTimeString,
+                    moscowStringLength: moscowTimeString.length,
+                    charCodes: charCodes,
+                    extractedHours: hours,
+                    finalSlot: timeSlot
+                });
+            });
+            addResult('Тест 1: toLocaleString() - СТАРЫЙ МЕТОД', JSON.stringify(results1, null, 2));
+        } catch (error) {
+            addResult('Тест 1: ОШИБКА', error.message, true);
+        }
+
+        // Тест 2: Новый метод (Intl.DateTimeFormat)
+        try {
+            const results2 = [];
+            testSlots.forEach(slot => {
+                const startDate = new Date(slot.startUtc);
+                
+                const formatter = new Intl.DateTimeFormat('ru-RU', {
+                    timeZone: 'Europe/Moscow',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false,
+                });
+                
+                const moscowTimeString = formatter.format(startDate);
+                
+                const charCodes = [...moscowTimeString].map(c => 
+                    `'${c}' (${c.charCodeAt(0)})`
+                ).join(', ');
+                
+                const timeMatch = moscowTimeString.match(/(\d{1,2})[:.]\d{2}/);
+                let timeSlot = 'НЕ НАЙДЕН';
+                if (timeMatch) {
+                    const hours = timeMatch[1].padStart(2, '0');
+                    timeSlot = `${hours}:00`;
+                }
+                
+                results2.push({
+                    utc: slot.startUtc,
+                    moscowString: moscowTimeString,
+                    moscowStringLength: moscowTimeString.length,
+                    charCodes: charCodes,
+                    regexMatch: timeMatch ? timeMatch[0] : null,
+                    extractedHours: timeMatch ? timeMatch[1] : null,
+                    finalSlot: timeSlot
+                });
+            });
+            addResult('Тест 2: Intl.DateTimeFormat() - НОВЫЙ МЕТОД', JSON.stringify(results2, null, 2));
+        } catch (error) {
+            addResult('Тест 2: ОШИБКА', error.message, true);
+        }
+
+        // Тест 3: Прямое извлечение часов
+        try {
+            const results3 = [];
+            testSlots.forEach(slot => {
+                const startDate = new Date(slot.startUtc);
+                
+                // Получаем компоненты даты в московском времени
+                const year = startDate.toLocaleString('ru-RU', { timeZone: 'Europe/Moscow', year: 'numeric' });
+                const month = startDate.toLocaleString('ru-RU', { timeZone: 'Europe/Moscow', month: '2-digit' });
+                const day = startDate.toLocaleString('ru-RU', { timeZone: 'Europe/Moscow', day: '2-digit' });
+                const hour = startDate.toLocaleString('ru-RU', { timeZone: 'Europe/Moscow', hour: '2-digit', hour12: false });
+                const minute = startDate.toLocaleString('ru-RU', { timeZone: 'Europe/Moscow', minute: '2-digit' });
+                
+                // Очищаем от возможных пробелов и спецсимволов
+                const cleanHour = hour.replace(/\D/g, '').padStart(2, '0');
+                const timeSlot = `${cleanHour}:00`;
+                
+                results3.push({
+                    utc: slot.startUtc,
+                    year, month, day, 
+                    hourRaw: hour,
+                    hourClean: cleanHour,
+                    minute,
+                    finalSlot: timeSlot
+                });
+            });
+            addResult('Тест 3: Прямое извлечение компонентов - АЛЬТЕРНАТИВА', JSON.stringify(results3, null, 2));
+        } catch (error) {
+            addResult('Тест 3: ОШИБКА', error.message, true);
+        }
+
+        // Информация о браузере
+        addResult('Информация о браузере', `
+User Agent: ${navigator.userAgent}
+Язык: ${navigator.language}
+Локаль по умолчанию: ${Intl.DateTimeFormat().resolvedOptions().locale}
+Часовой пояс браузера: ${Intl.DateTimeFormat().resolvedOptions().timeZone}
+        `);
+    </script>
+</body>
+</html>
+

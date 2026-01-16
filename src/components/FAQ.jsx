@@ -36,8 +36,28 @@ const FAQ = () => {
 
   return (
     <div className="section">
-      <h2 className="section__title">Часто задаваемые вопросы</h2>
-      <p className="section__description">
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-start',
+          marginBottom: '2rem',
+          flexWrap: 'wrap',
+          gap: '1rem',
+        }}
+      >
+        <h2 className="section__title" style={{ marginBottom: 0 }}>
+          Часто задаваемые вопросы
+        </h2>
+        {/* Маркер секции FAQ в том же стиле, что и / start в блоке подготовки */}
+        <span
+          className="section__marker section__marker--faq"
+          style={{ fontFamily: 'var(--font-accent)', fontSize: '1.5rem', color: 'var(--color-primary)' }}
+        >
+          / FAQ
+        </span>
+      </div>
+      <p className="section__description section__description--faq">
         Ответы на наиболее частые вопросы о внедрении ИИ в бизнес-процессы.
       </p>
 
